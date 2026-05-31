@@ -1,0 +1,450 @@
+import os
+import time
+import random
+
+def is_valid_move(piece, sr, sc, er, ec, board, moved_status=None, last_move=None):
+    target = board[er][ec]
+    if target != ".":
+        if piece.isupper() and target.isupper():
+            return False
+        if piece.islower() and target.islower():
+            return False
+        
+    row_dist = abs(er - sr)
+    col_dist = abs(ec - sc)
+    piece_type = piece.upper()
+    is_white = piece.isupper()
+
+    if piece_type == "N":
+        if (row_dist == 1 and col_dist == 2) or (row_dist == 2 and col_dist == 1):
+            return True
+        return False
+
+    if piece_type == "P":
+        direction = -1 if is_white else 1
+        start_row = 6 if is_white else 1
+        if sc == ec and target == ".":
+            if er - sr == direction:
+                return True
+            if sr == start_row and er - sr == 2 * direction and board[sr + direction][sc] == ".":
+                return True
+        elif abs(sc - ec) == 1 and er - sr == direction and target != ".":
+            return True
+        elif abs(sc - ec) == 1 and er - sr == direction and target == ".":
+            if last_move:
+                (l_sr, l_sc), (l_er, l_ec), l_piece = last_move
+                if l_piece.upper() == "P" and l_er == sr and l_ec == ec and abs(l_sr - l_er) == 2:
+                    return True
+        return False
+
+    is_rook_move = False
+    if sr == er or sc == ec:
+        step_r = 0 if sr == er else (1 if er > sr else -1)
+        step_c = 0 if sc == ec else (1 if ec > sc else -1)
+        curr_r, curr_c = sr + step_r, sc + step_c
+        blocked = False
+        while (curr_r, curr_c) != (er, ec):
+            if board[curr_r][curr_c] != ".":
+                blocked = True
+                break
+            curr_r += step_r
+            curr_c += step_c
+        if not blocked:
+            is_rook_move = True
+
+    if piece_type == "R":
+        return is_rook_move
+
+    is_bishop_move = False
+    if row_dist == col_dist:
+        step_r = 1 if er > sr else -1
+        step_c = 1 if ec > sc else -1
+        curr_r, curr_c = sr + step_r, sc + step_c
+        blocked = False
+        while (curr_r, curr_c) != (er, ec):
+            if board[curr_r][curr_c] != ".":
+                blocked = True
+                break
+            curr_r += step_r
+            curr_c += step_c
+        if not blocked:
+            is_bishop_move = True
+
+    if piece_type == "B":
+        return is_bishop_move
+        
+    if piece_type == "Q":
+        return is_rook_move or is_bishop_move
+
+    if piece_type == "K":
+        if row_dist <= 1 and col_dist <= 1 and (row_dist > 0 or col_dist > 0):
+            return True
+        if row_dist == 0 and col_dist == 2 and moved_status:
+            if is_white and sr == 7 and sc == 4:
+                if er == 7 and ec == 6 and not moved_status["W_King"] and not moved_status["W_R_right"]:
+                    if board[7][5] == "." and board[7][6] == ".":
+                        return True
+                elif er == 7 and ec == 2 and not moved_status["W_King"] and not moved_status["W_R_left"]:
+                    if board[7][1] == "." and board[7][2] == "." and board[7][3] == ".":
+                        return True
+            elif not is_white and sr == 0 and sc == 4:
+                if er == 0 and ec == 6 and not moved_status["B_King"] and not moved_status["B_R_right"]:
+                    if board[0][5] == "." and board[0][6] == ".":
+                        return True
+                elif er == 0 and ec == 2 and not moved_status["B_King"] and not moved_status["B_R_left"]:
+                    if board[0][1] == "." and board[0][2] == "." and board[0][3] == ".":
+                        return True
+        return False
+    return False
+
+def find_king(board, color):
+    target_king = "K" if color == "White" else "k"
+    for r in range(8):
+        for c in range(8):
+            if board[r][c] == target_king:
+                return r, c
+    return None
+
+def is_in_check(board, color, moved_status=None, last_move=None):
+    king_pos = find_king(board, color)
+    if not king_pos:
+        return False
+    king_r, king_c = king_pos
+    opponent_color = "Black" if color == "White" else "White"
+    for r in range(8):
+        for c in range(8):
+            piece = board[r][c]
+            if piece != ".":
+                if (opponent_color == "White" and piece.isupper()) or (opponent_color == "Black" and piece.islower()):
+                    if is_valid_move(piece, r, c, king_r, king_c, board, moved_status, last_move):
+                        return True
+    return False
+
+def has_legal_moves(board, color, moved_status, last_move):
+    for sr in range(8):
+        for sc in range(8):
+            piece = board[sr][sc]
+            if piece != "." and ((color == "White" and piece.isupper()) or (color == "Black" and piece.islower())):
+                for er in range(8):
+                    for ec in range(8):
+                        if is_valid_move(piece, sr, sc, er, ec, board, moved_status, last_move):
+                            orig = board[er][ec]
+                            ep_pawn = None
+                            if piece.upper() == "P" and sc != ec and orig == ".":
+                                ep_pawn = board[sr][ec]
+                                board[sr][ec] = "."
+                            board[er][ec] = piece
+                            board[sr][sc] = "."
+                            
+                            check = is_in_check(board, color, moved_status, last_move)
+                            
+                            board[sr][sc] = piece
+                            board[er][ec] = orig
+                            if ep_pawn:
+                                board[sr][ec] = ep_pawn
+                            
+                            if not check:
+                                return True
+    return False
+
+def get_all_legal_moves(board, color, moved_status, last_move):
+    moves = []
+    cols = "abcdefgh"
+    for sr in range(8):
+        for sc in range(8):
+            piece = board[sr][sc]
+            if piece != "." and ((color == "White" and piece.isupper()) or (color == "Black" and piece.islower())):
+                for er in range(8):
+                    for ec in range(8):
+                        if is_valid_move(piece, sr, sc, er, ec, board, moved_status, last_move):
+                            orig = board[er][ec]
+                            ep_pawn = None
+                            if piece.upper() == "P" and sc != ec and orig == ".":
+                                ep_pawn = board[sr][ec]
+                                board[sr][ec] = "."
+                            board[er][ec] = piece
+                            board[sr][sc] = "."
+                            
+                            check = is_in_check(board, color, moved_status, last_move)
+                            
+                            board[sr][sc] = piece
+                            board[er][ec] = orig
+                            if ep_pawn:
+                                board[sr][ec] = ep_pawn
+                                
+                            if not check:
+                                m_str = cols[sc] + str(8 - sr) + cols[ec] + str(8 - er)
+                                moves.append(m_str)
+    return moves
+
+def get_board_hash(board):
+    return "".join("".join(row) for row in board)
+
+def get_captures_and_score(board, turn):
+    starting_counts = {"P": 8, "N": 2, "B": 2, "R": 2, "Q": 1, "K": 1,
+                       "p": 8, "n": 2, "b": 2, "r": 2, "q": 1, "k": 1}
+    current_counts = {k: 0 for k in starting_counts.keys()}
+    for r in range(8):
+        for c in range(8):
+            p = board[r][c]
+            if p != ".":
+                current_counts[p] += 1
+                
+    white_taken, black_taken = [], []
+    for p, start_count in starting_counts.items():
+        taken_count = start_count - current_counts[p]
+        if taken_count > 0:
+            if p.isupper():
+                white_taken.extend([p] * taken_count)
+            else:
+                black_taken.extend([p] * taken_count)
+                
+    values = {"P": 1, "N": 3, "B": 3, "R": 5, "Q": 9, "K": 0,
+              "p": 1, "n": 3, "b": 3, "r": 5, "q": 9, "k": 0}
+    white_total = sum(values[p] for r in range(8) for p in board[r] if p != "." and p.isupper())
+    black_total = sum(values[p] for r in range(8) for p in board[r] if p != "." and p.islower())
+    
+    score_diff = white_total - black_total if turn == "White" else black_total - white_total
+    score_str = f"+{score_diff}" if score_diff > 0 else str(score_diff)
+    return " ".join(white_taken), " ".join(black_taken), score_str
+
+def print_board(board, turn):
+    w_taken, b_taken, score = get_captures_and_score(board, turn)
+    print("                     CHESS                      ")
+    print("------------------------------------------------")
+    print(f"               CURRENT TURN: {turn.upper()}               ")
+    print("------------------------------------------------")
+    print()
+    for r in range(8):
+        print("            " + str(8-r) + "    " + " ".join(board[r]))
+    print()
+    print("                 a b c d e f g h")
+    print()
+    print("------------------------------------------------")
+    print(f"Captured White Pieces : {w_taken if w_taken else 'None'}")
+    print(f"Captured Black Pieces : {b_taken if b_taken else 'None'}")
+    print(f"Material Score Diff   : {score}")
+    print("------------------------------------------------")
+
+def print_move_log(move_log):
+    print("\n================ GAME LOG ================")
+    if not move_log:
+        print("No moves were made.")
+    else:
+        for i in range(0, len(move_log), 2):
+            move_num = (i // 2) + 1
+            white_move = move_log[i]
+            black_move = move_log[i+1] if (i+1) < len(move_log) else ""
+            print(f"{move_num}. {white_move:<8} {black_move}")
+    print("==========================================\n")
+
+def home_screen():
+    os.system("clear" if os.name != "nt" else "cls")
+    print("==========================================")
+    print("          WELCOME TO PYTHON CHESS         ")
+    print("==========================================")
+    print("1. Play Locally (Two Players)")
+    print("2. Play Against a Bot")
+    print("==========================================")
+    
+    mode = input("Select Game Mode (1 or 2): ").strip()
+    if mode != "2":
+        return "local", "White", 300
+
+    color_choice = input("Choose your color (white/black/random): ").lower().strip()
+    if color_choice in ["white", "w"]:
+        user_color = "White"
+    elif color_choice in ["black", "b"]:
+        user_color = "Black"
+    else:
+        user_color = random.choice(["White", "Black"])
+
+    try:
+        minutes = float(input("Enter game time per player (in minutes): ").strip())
+        game_time = minutes * 60
+    except ValueError:
+        game_time = 300
+
+    return "bot", user_color, game_time
+
+def play_game(game_mode, user_color, game_time):
+    board = [
+        ["r","n","b","q","k","b","n","r"],
+        ["p","p","p","p","p","p","p","p"],
+        [".",".",".",".",".",".",".","."],
+        [".",".",".",".",".",".",".","."],
+        [".",".",".",".",".",".",".","."],
+        [".",".",".",".",".",".",".","."],
+        ["P","P","P","P","P","P","P","P"],
+        ["R","N","B","Q","K","B","N","R"]
+    ]
+    turn = "White"
+    white_time, black_time = game_time, game_time
+    error_message = ""
+    
+    moved_status = {
+        "W_King": False, "W_R_left": False, "W_R_right": False,
+        "B_King": False, "B_R_left": False, "B_R_right": False
+    }
+    last_move = None
+    
+    halfmove_clock = 0
+    position_history = {get_board_hash(board): 1}
+    move_log = []
+
+    while True:
+        os.system("clear" if os.name != "nt" else "cls")
+        print("White Time:", round(white_time))
+        print("Black Time:", round(black_time))
+        print()
+        
+        if not has_legal_moves(board, turn, moved_status, last_move):
+            print_board(board, turn)
+            if is_in_check(board, turn, moved_status, last_move):
+                winner = "Black" if turn == "White" else "White"
+                print(f"\n═╝ CHECKMATE! {winner} wins! ╚═")
+            else:
+                print("\n═╝ STALEMATE! The game is a draw. ╚═")
+            break
+            
+        if halfmove_clock >= 100:
+            print_board(board, turn)
+            print("\n═╝ DRAW! 50-move rule reached. ╚═")
+            break
+            
+        if any(count >= 3 for count in position_history.values()):
+            print_board(board, turn)
+            print("\n═╝ DRAW! Threefold repetition reached. ╚═")
+            break
+
+        print_board(board, turn)
+        
+        if error_message:
+            print(f"\n⚠️ {error_message}")
+            error_message = ""
+
+        start_time = time.time()
+        
+        if game_mode == "bot" and turn != user_color:
+            bot_moves = get_all_legal_moves(board, turn, moved_status, last_move)
+            if not bot_moves:
+                break
+            move = random.choice(bot_moves)
+            time.sleep(1)
+        else:
+            move = input(f"\n[{turn}'s Move] Enter coordinates (e.g., e2e4) or 'quit': ").lower().strip()
+            
+        elapsed = time.time() - start_time
+
+        if turn == "White":
+            white_time -= elapsed
+        else:
+            black_time -= elapsed
+
+        if move == "quit":
+            break
+        cols = "abcdefgh"
+
+        try:
+            if len(move) != 4:
+                raise ValueError
+            start, end = move[:2], move[2:]
+            sr, sc = 8 - int(start[1]), cols.index(start[0])
+            er, ec = 8 - int(end[1]), cols.index(end[0])
+            if not (0 <= sr <= 7 and 0 <= sc <= 7 and 0 <= er <= 7 and 0 <= ec <= 7):
+                raise ValueError
+        except (ValueError, IndexError):
+            error_message = "Invalid coordinate format! Use formats like 'e2e4'."
+            continue
+
+        piece = board[sr][sc]
+        if piece == ".":
+            error_message = "There is no piece on that starting square!"
+            continue
+        if turn == "White" and not piece.isupper():
+            error_message = "It's White's turn! You cannot move Black pieces."
+            continue
+        if turn == "Black" and not piece.islower():
+            error_message = "It's Black's turn! You cannot move White pieces."
+            continue
+
+        if not is_valid_move(piece, sr, sc, er, ec, board, moved_status, last_move):
+            error_message = "Invalid movement rule for that piece!"
+            continue
+
+        original_target = board[er][ec]
+        ep_captured_pawn = None
+        
+        if piece.upper() == "P" or original_target != ".":
+            halfmove_clock = 0
+        else:
+            halfmove_clock += 1
+
+        if piece.upper() == "P" and sc != ec and original_target == ".":
+            ep_captured_pawn = board[sr][ec]
+            board[sr][ec] = "."
+
+        board[er][ec] = piece
+        board[sr][sc] = "."
+        
+        rook_from, rook_to = None, None
+        if piece.upper() == "K" and abs(ec - sc) == 2:
+            if move == "e1g1":
+                rook_from, rook_to = (7, 7), (7, 5)
+            elif move == "e1c1":
+                rook_from, rook_to = (7, 0), (7, 3)
+            elif move == "e8g8":
+                rook_from, rook_to = (0, 7), (0, 5)
+            elif move == "e8c8":
+                rook_from, rook_to = (0, 0), (0, 3)
+            if rook_from:
+                board[rook_to[0]][rook_to[1]] = board[rook_from[0]][rook_from[1]]
+                board[rook_from[0]][rook_from[1]] = "."
+        
+        if is_in_check(board, turn, moved_status, last_move):
+            board[sr][sc] = piece
+            board[er][ec] = original_target
+            if ep_captured_pawn:
+                board[sr][ec] = ep_captured_pawn
+            if rook_from:
+                board[rook_from[0]][rook_from[1]] = board[rook_to[0]][rook_to[1]]
+                board[rook_to[0]][rook_to[1]] = "."
+            error_message = "Illegal move! You cannot put or leave your King in check."
+            continue
+
+        if piece.upper() == "P" and (er == 0 or er == 7):
+            board[er][ec] = "Q" if turn == "White" else "q"
+
+        if sr == 7 and sc == 4:
+            moved_status["W_King"] = True
+        elif sr == 7 and sc == 0:
+            moved_status["W_R_left"] = True
+        elif sr == 7 and sc == 7:
+            moved_status["W_R_right"] = True
+        elif sr == 0 and sc == 4:
+            moved_status["B_King"] = True
+        elif sr == 0 and sc == 0:
+            moved_status["B_R_left"] = True
+        elif sr == 0 and sc == 7:
+            moved_status["B_R_right"] = True
+
+        move_log.append(move)
+        board_hash = get_board_hash(board)
+        position_history[board_hash] = position_history.get(board_hash, 0) + 1
+
+        last_move = ((sr, sc), (er, ec), piece)
+        turn = "Black" if turn == "White" else "White"
+
+    print_move_log(move_log)
+
+def main():
+    while True:
+        game_mode, user_color, game_time = home_screen()
+        play_game(game_mode, user_color, game_time)
+        choice = input("Would you like to return to the home screen? (yes/no): ").lower().strip()
+        if choice not in ["yes", "y"]:
+            print("\nThanks for playing! Goodbye.")
+            break
+
+if __name__ == "__main__":
+    main()
